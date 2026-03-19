@@ -7,6 +7,13 @@ $pomodoroWorkDuration  = New-TimeSpan -Minutes 25
 $pomodoroBreakDuration = New-TimeSpan -Minutes 5
 # endregion
 
+# region UI Colors
+$clockDefaultColor = "Black"
+$remainingTimeDefaultColor = "LightGray"
+$activeTimerColor = "Red"
+$breakTimeColor = "Orange"
+# endregion
+
 # region Load XAML
 $xamlPath = Join-Path (Split-Path $MyInvocation.MyCommand.Path) "TimerClock.xaml"
 [xml]$xaml = (Get-Content $xamlPath | Out-String)
@@ -26,6 +33,11 @@ $alarmControls = $mainWindow.FindName("AlarmControls")
 $script:alarmTimeInput = $mainWindow.FindName("AlarmTimeInput")
 $setAlarmButton = $mainWindow.FindName("SetAlarmButton")
 $cancelAlarmButton = $mainWindow.FindName("CancelAlarmButton")
+$remainingTimeDisplay = $mainWindow.FindName("RemainingTimeDisplay") # New assignment for the new TextBlock
+
+# Set initial colors
+$timeDisplay.Foreground = [System.Windows.Media.Brushes]::$clockDefaultColor
+$remainingTimeDisplay.Foreground = [System.Windows.Media.Brushes]::$remainingTimeDefaultColor
 
 $pomodoroControls = $mainWindow.FindName("PomodoroControls")
 $pomodoroStatusText = $mainWindow.FindName("PomodoroStatusText")
@@ -55,12 +67,23 @@ $script:alarmTime = $null
 $alarmCheckTimer = New-Object System.Windows.Threading.DispatcherTimer
 $alarmCheckTimer.Interval = New-TimeSpan -Seconds 1
 $alarmCheckTimer.Add_Tick({
-    if ($script:alarmTime -and (Get-Date -Format "HH:mm") -eq (Get-Date $script:alarmTime -Format "HH:mm")) {
+    $currentTime = Get-Date # Get current time once for consistency
+
+    if ($script:alarmTime -and $currentTime -ge $script:alarmTime) {
         $alarmCheckTimer.Stop()
         [System.Windows.MessageBox]::Show("設定した時間になりました！", "アラーム",
 [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
         $statusText.Text = "アラーム完了"
         $script:alarmTime = $null # Reset alarm after it triggers
+        $remainingTimeDisplay.Text = "" # Clear remaining time display
+    }
+    if ($alarmRadio.IsChecked -and $script:alarmTime) {
+        $timeRemaining = $script:alarmTime.Subtract($currentTime)
+        if ($timeRemaining.TotalSeconds -gt 0) {
+            $remainingTimeDisplay.Text = "残り時間: {0:D2}:{1:D2}:{2:D2}" -f $timeRemaining.Hours, $timeRemaining.Minutes, $timeRemaining.Seconds
+        } else {
+            $remainingTimeDisplay.Text = "" # Clear if alarm time has passed but not yet triggered (e.g., missed window)
+        }
     }
 })
 
@@ -86,57 +109,61 @@ $cancelAlarmButton.Add_Click({
 # endregion
 
 # region Pomodoro Functionality
-$pomodoroState = "Stopped" # "Stopped", "Working", "Breaking", "Paused"
-$pomodoroRemainingTime = $pomodoroWorkDuration
-$isWorkPhase = $true
+$script:pomodoroState = "Stopped" # "Stopped", "Working", "Breaking", "Paused"
+$script:pomodoroRemainingTime = $pomodoroWorkDuration
+$script:isWorkPhase = $true
 
 $pomodoroTimer = New-Object System.Windows.Threading.DispatcherTimer
 $pomodoroTimer.Interval = New-TimeSpan -Seconds 1
 $pomodoroTimer.Add_Tick({
-    $pomodoroRemainingTime = $pomodoroRemainingTime.Subtract([TimeSpan]::FromSeconds(1))
+    $script:pomodoroRemainingTime = $script:pomodoroRemainingTime.Subtract([TimeSpan]::FromSeconds(1))
 
-    if ($pomodoroRemainingTime.TotalSeconds -le 0) {
+    if ($script:pomodoroRemainingTime.TotalSeconds -le 0) {
         $pomodoroTimer.Stop()
         [System.Windows.MessageBox]::Show("時間です！", "ポモドーロ", [System.Windows.MessageBoxButton]::OK,
-[System.Windows.MessageBoxImage]::Information)
+    [System.Windows.MessageBoxImage]::Information)
 
-        if ($isWorkPhase) {
-            $isWorkPhase = $false
-            $pomodoroRemainingTime = $pomodoroBreakDuration
-            $pomodoroState = "Breaking"
+        if ($script:isWorkPhase) {
+            $script:isWorkPhase = $false
+            $script:pomodoroRemainingTime = $pomodoroBreakDuration
+            $script:pomodoroState = "Breaking"
             $pomodoroStatusText.Text = "休憩中..."
         }
         else {
-            $isWorkPhase = $true
-            $pomodoroRemainingTime = $pomodoroWorkDuration
-            $pomodoroState = "Stopped"
+            $script:isWorkPhase = $true
+            $script:pomodoroRemainingTime = $pomodoroWorkDuration
+            $script:pomodoroState = "Stopped"
             $pomodoroStatusText.Text = "ポモドーロ: 準備完了"
             $startPomodoroButton.IsEnabled = $true
             $pausePomodoroButton.IsEnabled = $false
             $resetPomodoroButton.IsEnabled = $true
+            $remainingTimeDisplay.Text = "" # Clear display
         }
-        if ($pomodoroState -ne "Stopped") {
+        if ($script:pomodoroState -ne "Stopped") {
             $pomodoroTimer.Start()
         }
     }
-    $pomodoroTimerDisplay.Text = "{0:D2}:{1:D2}" -f [int]$pomodoroRemainingTime.Minutes,
-[int]$pomodoroRemainingTime.Seconds
+    if ($pomodoroRadio.IsChecked) {
+        $remainingTimeDisplay.Text = "残り時間: {0:D2}:{1:D2}" -f [int]$script:pomodoroRemainingTime.Minutes, [int]$script:pomodoroRemainingTime.Seconds
+    }
+    $pomodoroTimerDisplay.Text = "{0:D2}:{1:D2}" -f [int]$script:pomodoroRemainingTime.Minutes,
+    [int]$script:pomodoroRemainingTime.Seconds
 })
 
 $startPomodoroButton.Add_Click({
-    if ($pomodoroState -eq "Stopped" -or $pomodoroState -eq "Paused") {
+    if ($script:pomodoroState -eq "Stopped" -or $script:pomodoroState -eq "Paused") {
         $pomodoroTimer.Start()
-        $pomodoroState = if ($isWorkPhase) { "Working" } else { "Breaking" }
-        $pomodoroStatusText.Text = if ($isWorkPhase) { "作業中..." } else { "休憩中..." }
+        $script:pomodoroState = if ($script:isWorkPhase) { "Working" } else { "Breaking" }
+        $pomodoroStatusText.Text = if ($script:isWorkPhase) { "作業中..." } else { "休憩中..." }
         $startPomodoroButton.IsEnabled = $false
         $pausePomodoroButton.IsEnabled = $true
     }
 })
 
 $pausePomodoroButton.Add_Click({
-    if ($pomodoroState -eq "Working" -or $pomodoroState -eq "Breaking") {
+    if ($script:pomodoroState -eq "Working" -or $script:pomodoroState -eq "Breaking") {
         $pomodoroTimer.Stop()
-        $pomodoroState = "Paused"
+        $script:pomodoroState = "Paused"
         $pomodoroStatusText.Text = "一時停止中"
         $startPomodoroButton.IsEnabled = $true
         $pausePomodoroButton.IsEnabled = $false
@@ -145,11 +172,11 @@ $pausePomodoroButton.Add_Click({
 
 $resetPomodoroButton.Add_Click({
     $pomodoroTimer.Stop()
-    $pomodoroState = "Stopped"
-    $isWorkPhase = $true
-    $pomodoroRemainingTime = $pomodoroWorkDuration
-    $pomodoroTimerDisplay.Text = "{0:D2}:{1:D2}" -f [int]$pomodoroRemainingTime.Minutes,
-[int]$pomodoroRemainingTime.Seconds
+    $script:pomodoroState = "Stopped"
+    $script:isWorkPhase = $true
+    $script:pomodoroRemainingTime = $pomodoroWorkDuration
+    $pomodoroTimerDisplay.Text = "{0:D2}:{1:D2}" -f [int]$script:pomodoroRemainingTime.Minutes,
+[int]$script:pomodoroRemainingTime.Seconds
     $pomodoroStatusText.Text = "ポモドーロ: 準備完了"
     $startPomodoroButton.IsEnabled = $true
     $pausePomodoroButton.IsEnabled = $false
@@ -163,14 +190,15 @@ $alarmRadio.Add_Checked({
     $pomodoroControls.Visibility = [System.Windows.Visibility]::Collapsed
     # Make sure to stop any running pomodoro timer when switching to alarm mode
     $pomodoroTimer.Stop()
-    $pomodoroState = "Stopped"
-    $isWorkPhase = $true
-    $pomodoroRemainingTime = $pomodoroWorkDuration
-    $pomodoroTimerDisplay.Text = "{0:D2}:{1:D2}" -f [int]$pomodoroRemainingTime.Minutes,
-[int]$pomodoroRemainingTime.Seconds
+    $script:pomodoroState = "Stopped"
+    $script:isWorkPhase = $true
+    $script:pomodoroRemainingTime = $pomodoroWorkDuration
+    $pomodoroTimerDisplay.Text = "{0:D2}:{1:D2}" -f [int]$script:pomodoroRemainingTime.Minutes,
+[int]$script:pomodoroRemainingTime.Seconds
     $pomodoroStatusText.Text = "ポモドーロ: 準備完了"
     $startPomodoroButton.IsEnabled = $true
     $pausePomodoroButton.IsEnabled = $false
+    $remainingTimeDisplay.Text = "" # Clear remaining time when switching to alarm mode, will be populated by $alarmCheckTimer
 })
 
 $pomodoroRadio.Add_Checked({
@@ -178,14 +206,15 @@ $pomodoroRadio.Add_Checked({
     $alarmControls.Visibility = [System.Windows.Visibility]::Collapsed
     $pomodoroControls.Visibility = [System.Windows.Visibility]::Visible
     # Ensure Pomodoro display is correct when selected
-    $pomodoroTimerDisplay.Text = "{0:D2}:{1:D2}" -f [int]$pomodoroRemainingTime.Minutes,
-[int]$pomodoroRemainingTime.Seconds
+    $pomodoroTimerDisplay.Text = "{0:D2}:{1:D2}" -f [int]$script:pomodoroRemainingTime.Minutes,
+[int]$script:pomodoroRemainingTime.Seconds
     $pomodoroStatusText.Text = "ポモドーロ: 準備完了"
     $startPomodoroButton.IsEnabled = $true
     $pausePomodoroButton.IsEnabled = $false
     # Make sure to stop any running alarm timer when switching to pomodoro mode
     $alarmCheckTimer.Stop()
     $script:alarmTime = $null
+    $remainingTimeDisplay.Text = "残り時間: {0:D2}:{1:D2}" -f [int]$script:pomodoroRemainingTime.Minutes, [int]$script:pomodoroRemainingTime.Seconds # Show initial pomodoro remaining time
 })
 # endregion
 
