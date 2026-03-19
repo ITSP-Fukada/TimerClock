@@ -23,7 +23,7 @@ $statusText = $mainWindow.FindName("StatusText")
 
 # New UI elements
 $alarmControls = $mainWindow.FindName("AlarmControls")
-$alarmTimeInput = $mainWindow.FindName("AlarmTimeInput")
+$script:alarmTimeInput = $mainWindow.FindName("AlarmTimeInput")
 $setAlarmButton = $mainWindow.FindName("SetAlarmButton")
 $cancelAlarmButton = $mainWindow.FindName("CancelAlarmButton")
 
@@ -51,27 +51,24 @@ $alwaysOnTopCheckbox.Add_Unchecked({ $mainWindow.Topmost = $false })
 # endregion
 
 # region Alarm Functionality
-$alarmTime = $null
+$script:alarmTime = $null
 $alarmCheckTimer = New-Object System.Windows.Threading.DispatcherTimer
 $alarmCheckTimer.Interval = New-TimeSpan -Seconds 1
 $alarmCheckTimer.Add_Tick({
-    if ($alarmTime) {
-        Write-Host "Current Time: $((Get-Date).ToString("HH:mm:ss")) - Alarm Time: $($alarmTime.ToString("HH:mm"))"
-    }
-    if ($alarmTime -and (Get-Date -Format "HH:mm") -eq (Get-Date $alarmTime -Format "HH:mm")) {
+    if ($script:alarmTime -and (Get-Date -Format "HH:mm") -eq (Get-Date $script:alarmTime -Format "HH:mm")) {
         $alarmCheckTimer.Stop()
         [System.Windows.MessageBox]::Show("設定した時間になりました！", "アラーム",
 [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
         $statusText.Text = "アラーム完了"
-        $alarmTime = $null # Reset alarm after it triggers
+        $script:alarmTime = $null # Reset alarm after it triggers
     }
 })
 
 $setAlarmButton.Add_Click({
     try {
-        $inputTime = [DateTime]::ParseExact($alarmTimeInput.Text, "HH:mm", $null)
-        $alarmTime = $inputTime
-        $statusText.Text = "アラーム設定: $($alarmTime.ToString('HH:mm'))"
+        $inputTime = [DateTime]::ParseExact($script:alarmTimeInput.Text, "HH:mm", $null)
+        $script:alarmTime = $inputTime
+        $statusText.Text = "アラーム設定: $($script:alarmTime.ToString('HH:mm'))"
         $alarmCheckTimer.Start()
     }
     catch {
@@ -83,7 +80,7 @@ $setAlarmButton.Add_Click({
 
 $cancelAlarmButton.Add_Click({
     $alarmCheckTimer.Stop()
-    $alarmTime = $null
+    $script:alarmTime = $null
     $statusText.Text = "アラームキャンセル"
 })
 # endregion
@@ -188,7 +185,7 @@ $pomodoroRadio.Add_Checked({
     $pausePomodoroButton.IsEnabled = $false
     # Make sure to stop any running alarm timer when switching to pomodoro mode
     $alarmCheckTimer.Stop()
-    $alarmTime = $null
+    $script:alarmTime = $null
 })
 # endregion
 

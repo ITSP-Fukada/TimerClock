@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         Title="Timer Clock" Height="250" Width="300"
-        Topmost="False"
+        Topmost="True"
         WindowStartupLocation="CenterScreen">
     <Grid Margin="10">
         <Grid.RowDefinitions>
@@ -26,7 +26,8 @@
                   Grid.Row="1"
                   Content="常に手前に表示"
                   HorizontalAlignment="Left"
-                  Margin="0,10,0,0"/>
+                  Margin="0,10,0,0"
+                  IsChecked="True"/>
 
         <StackPanel Grid.Row="2" Margin="0,10,0,0">
             <RadioButton Name="AlarmRadio" Content="アラーム機能" IsChecked="True" GroupName="ModeSelection" Margin="0,5,0,0"/>
