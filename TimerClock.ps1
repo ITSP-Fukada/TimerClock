@@ -30,10 +30,24 @@ $statusText = $mainWindow.FindName("StatusText")
 
 # New UI elements
 $alarmControls = $mainWindow.FindName("AlarmControls")
-$script:alarmTimeInput = $mainWindow.FindName("AlarmTimeInput")
+$alarmHourInput = $mainWindow.FindName("AlarmHourInput")
+$alarmMinuteInput = $mainWindow.FindName("AlarmMinuteInput")
 $setAlarmButton = $mainWindow.FindName("SetAlarmButton")
 $cancelAlarmButton = $mainWindow.FindName("CancelAlarmButton")
+$quickPlus5 = $mainWindow.FindName("QuickPlus5")
+$quickPlus10 = $mainWindow.FindName("QuickPlus10")
+$quickPlus30 = $mainWindow.FindName("QuickPlus30")
+$quickPlus60 = $mainWindow.FindName("QuickPlus60")
 $remainingTimeDisplay = $mainWindow.FindName("RemainingTimeDisplay") # New assignment for the new TextBlock
+
+# Populate Alarm ComboBoxes
+0..23 | ForEach-Object { [void]$alarmHourInput.Items.Add($_.ToString("D2")) }
+0..59 | ForEach-Object { [void]$alarmMinuteInput.Items.Add($_.ToString("D2")) }
+
+# Set initial alarm time to current time
+$now = Get-Date
+$alarmHourInput.SelectedItem = $now.Hour.ToString("D2")
+$alarmMinuteInput.SelectedItem = $now.Minute.ToString("D2")
 
 # Set initial colors
 $timeDisplay.Foreground = [System.Windows.Media.Brushes]::$clockDefaultColor
@@ -65,45 +79,90 @@ $alwaysOnTopCheckbox.Add_Unchecked({ $mainWindow.Topmost = $false })
 # region Alarm Functionality
 $script:alarmTime = $null
 $alarmCheckTimer = New-Object System.Windows.Threading.DispatcherTimer
-$alarmCheckTimer.Interval = New-TimeSpan -Seconds 1
+$alarmCheckTimer.Interval = [TimeSpan]::FromMilliseconds(100) # Check more frequently for precision
 $alarmCheckTimer.Add_Tick({
-    $currentTime = Get-Date # Get current time once for consistency
+    $currentTime = Get-Date
 
-    if ($script:alarmTime -and $currentTime -ge $script:alarmTime) {
-        $alarmCheckTimer.Stop()
-        [System.Windows.MessageBox]::Show("設定した時間になりました！", "アラーム",
-[System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
-        $statusText.Text = "アラーム完了"
-        $script:alarmTime = $null # Reset alarm after it triggers
-        $remainingTimeDisplay.Text = "" # Clear remaining time display
-    }
-    if ($alarmRadio.IsChecked -and $script:alarmTime) {
+    if ($script:alarmTime) {
         $timeRemaining = $script:alarmTime.Subtract($currentTime)
-        if ($timeRemaining.TotalSeconds -gt 0) {
-            $remainingTimeDisplay.Text = "残り時間: {0:D2}:{1:D2}:{2:D2}" -f $timeRemaining.Hours, $timeRemaining.Minutes, $timeRemaining.Seconds
-        } else {
-            $remainingTimeDisplay.Text = "" # Clear if alarm time has passed but not yet triggered (e.g., missed window)
+        
+        # Trigger when time is reached or passed
+        if ($timeRemaining.TotalSeconds -le 0) {
+            $alarmCheckTimer.Stop()
+            $remainingTimeDisplay.Foreground = [System.Windows.Media.Brushes]::$remainingTimeDefaultColor
+            $remainingTimeDisplay.Text = "残り時間: 00:00:00"
+            
+            [System.Windows.MessageBox]::Show("設定した時間になりました！", "アラーム",
+[System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+            
+            $statusText.Text = "アラーム完了"
+            $script:alarmTime = $null
+            $remainingTimeDisplay.Text = ""
+        }
+        elseif ($alarmRadio.IsChecked) {
+            # Use Ceiling so it shows 00:00:01 until it hits exactly 0
+            $totalSecs = [Math]::Ceiling($timeRemaining.TotalSeconds)
+            $h = [Math]::Floor($totalSecs / 3600)
+            $m = [Math]::Floor(($totalSecs % 3600) / 60)
+            $s = $totalSecs % 60
+            $remainingTimeDisplay.Text = "残り時間: {0:D2}:{1:D2}:{2:D2}" -f [int]$h, [int]$m, [int]$s
         }
     }
 })
 
 $setAlarmButton.Add_Click({
     try {
-        $inputTime = [DateTime]::ParseExact($script:alarmTimeInput.Text, "HH:mm", $null)
+        $hour = [int]$alarmHourInput.SelectedItem
+        $minute = [int]$alarmMinuteInput.SelectedItem
+        
+        $now = Get-Date
+        $inputTime = Get-Date -Hour $hour -Minute $minute -Second 0
+        
+        # If the input time is in the past today, assume it's for tomorrow
+        if ($inputTime -lt $now) {
+            $inputTime = $inputTime.AddDays(1)
+        }
+        
         $script:alarmTime = $inputTime
-        $statusText.Text = "アラーム設定: $($script:alarmTime.ToString('HH:mm'))"
+        $statusText.Text = "アラーム設定: $($script:alarmTime.ToString('MM/dd HH:mm'))"
+        $remainingTimeDisplay.Foreground = [System.Windows.Media.Brushes]::$activeTimerColor
         $alarmCheckTimer.Start()
     }
     catch {
-        [System.Windows.MessageBox]::Show("無効な時刻フォーマットです。HH:mm形式で入力してください。", "エラー",
+        [System.Windows.MessageBox]::Show("設定エラーが発生しました。", "エラー",
 [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error)
         $statusText.Text = "アラーム設定エラー"
     }
 })
 
+# Quick Add logic
+$updateComboBoxes = {
+    param($time)
+    $alarmHourInput.SelectedItem = $time.Hour.ToString("D2")
+    $alarmMinuteInput.SelectedItem = $time.Minute.ToString("D2")
+}
+
+$quickPlus5.Add_Click({
+    $newTime = (Get-Date).AddMinutes(5)
+    &$updateComboBoxes $newTime
+})
+$quickPlus10.Add_Click({
+    $newTime = (Get-Date).AddMinutes(10)
+    &$updateComboBoxes $newTime
+})
+$quickPlus30.Add_Click({
+    $newTime = (Get-Date).AddMinutes(30)
+    &$updateComboBoxes $newTime
+})
+$quickPlus60.Add_Click({
+    $newTime = (Get-Date).AddHours(1)
+    &$updateComboBoxes $newTime
+})
+
 $cancelAlarmButton.Add_Click({
     $alarmCheckTimer.Stop()
     $script:alarmTime = $null
+    $remainingTimeDisplay.Foreground = [System.Windows.Media.Brushes]::$remainingTimeDefaultColor
     $statusText.Text = "アラームキャンセル"
 })
 # endregion
@@ -128,12 +187,16 @@ $pomodoroTimer.Add_Tick({
             $script:pomodoroRemainingTime = $pomodoroBreakDuration
             $script:pomodoroState = "Breaking"
             $pomodoroStatusText.Text = "休憩中..."
+            $pomodoroTimerDisplay.Foreground = [System.Windows.Media.Brushes]::$breakTimeColor
+            $remainingTimeDisplay.Foreground = [System.Windows.Media.Brushes]::$breakTimeColor
         }
         else {
             $script:isWorkPhase = $true
             $script:pomodoroRemainingTime = $pomodoroWorkDuration
             $script:pomodoroState = "Stopped"
             $pomodoroStatusText.Text = "ポモドーロ: 準備完了"
+            $pomodoroTimerDisplay.Foreground = [System.Windows.Media.Brushes]::$clockDefaultColor
+            $remainingTimeDisplay.Foreground = [System.Windows.Media.Brushes]::$remainingTimeDefaultColor
             $startPomodoroButton.IsEnabled = $true
             $pausePomodoroButton.IsEnabled = $false
             $resetPomodoroButton.IsEnabled = $true
@@ -155,6 +218,11 @@ $startPomodoroButton.Add_Click({
         $pomodoroTimer.Start()
         $script:pomodoroState = if ($script:isWorkPhase) { "Working" } else { "Breaking" }
         $pomodoroStatusText.Text = if ($script:isWorkPhase) { "作業中..." } else { "休憩中..." }
+        
+        $color = if ($script:isWorkPhase) { $activeTimerColor } else { $breakTimeColor }
+        $pomodoroTimerDisplay.Foreground = [System.Windows.Media.Brushes]::$color
+        $remainingTimeDisplay.Foreground = [System.Windows.Media.Brushes]::$color
+        
         $startPomodoroButton.IsEnabled = $false
         $pausePomodoroButton.IsEnabled = $true
     }
@@ -165,6 +233,10 @@ $pausePomodoroButton.Add_Click({
         $pomodoroTimer.Stop()
         $script:pomodoroState = "Paused"
         $pomodoroStatusText.Text = "一時停止中"
+        
+        $pomodoroTimerDisplay.Foreground = [System.Windows.Media.Brushes]::$clockDefaultColor
+        $remainingTimeDisplay.Foreground = [System.Windows.Media.Brushes]::$remainingTimeDefaultColor
+        
         $startPomodoroButton.IsEnabled = $true
         $pausePomodoroButton.IsEnabled = $false
     }
@@ -178,6 +250,10 @@ $resetPomodoroButton.Add_Click({
     $pomodoroTimerDisplay.Text = "{0:D2}:{1:D2}" -f [int]$script:pomodoroRemainingTime.Minutes,
 [int]$script:pomodoroRemainingTime.Seconds
     $pomodoroStatusText.Text = "ポモドーロ: 準備完了"
+    
+    $pomodoroTimerDisplay.Foreground = [System.Windows.Media.Brushes]::$clockDefaultColor
+    $remainingTimeDisplay.Foreground = [System.Windows.Media.Brushes]::$remainingTimeDefaultColor
+    
     $startPomodoroButton.IsEnabled = $true
     $pausePomodoroButton.IsEnabled = $false
 })
